@@ -64,7 +64,8 @@ enum SystemStats {
         var usedPercent: Double { total > 0 ? Double(used) / Double(total) * 100.0 : 0 }
     }
 
-    /// 已用 = active + wired + compressed（与活动监视器口径接近）
+    /// 已用 = 物理内存 − 空闲 − 预读(speculative) − 文件缓存页（与活动监视器"已使用"同口径。
+    /// 脏的非活跃匿名页重用前需先压缩/写交换，活动监视器把它算进"已使用"，这里保持一致）
     static func memoryInfo() -> MemoryInfo {
         var stats = vm_statistics64_data_t()
         var count = mach_msg_type_number_t(
@@ -80,11 +81,14 @@ enum SystemStats {
         }
 
         let pageSize = UInt64(vm_kernel_page_size)
-        let active = UInt64(bitPattern: Int64(stats.active_count))
-        let wired = UInt64(bitPattern: Int64(stats.wire_count))
-        let compressed = UInt64(bitPattern: Int64(stats.compressor_page_count))
-        let used = (active + wired + compressed) * pageSize
+        let free = UInt64(bitPattern: Int64(stats.free_count))
+        let speculative = UInt64(bitPattern: Int64(stats.speculative_count))
+        let external = UInt64(bitPattern: Int64(stats.external_page_count))
         let total = ProcessInfo.processInfo.physicalMemory
+        let totalPages = total / pageSize
+        let reclaimable = free + speculative + external
+        let usedPages = reclaimable < totalPages ? totalPages - reclaimable : 0
+        let used = usedPages * pageSize
         return MemoryInfo(used: min(used, total), total: total)
     }
 }
